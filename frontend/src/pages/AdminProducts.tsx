@@ -1,198 +1,310 @@
-import { useEffect, useMemo, useState } from "react";
-import api from "../utils/api";
-import type { Product } from "../types";
-import Container from "@mui/material/Container";
-import Typography from "@mui/material/Typography";
-import TextField from "@mui/material/TextField";
-import MenuItem from "@mui/material/MenuItem";
-import Button from "@mui/material/Button";
-import Grid from "@mui/material/Grid";
-import Card from "@mui/material/Card";
-import CardContent from "@mui/material/CardContent";
-import CardActions from "@mui/material/CardActions";
-import Alert from "@mui/material/Alert";
-import Box from "@mui/material/Box";
+// frontend/src/pages/AdminProducts.tsx
+import { useEffect, useState, useCallback, useMemo } from "react";
+import {
+  Box,
+  Card,
+  CardContent,
+  CircularProgress,
+  IconButton,
+  InputAdornment,
+  Pagination,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
+  Tooltip,
+  Typography,
+} from "@mui/material";
+import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/Delete";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import SearchIcon from "@mui/icons-material/Search";
+import axios, { AxiosError } from "axios";
 import ProductEditDialog from "../components/ProductEditDialog";
-import type { ProductEditData } from "../components/ProductEditDialog";
-import Chip from "@mui/material/Chip";
 
-type Restaurant = { _id: string; name: string };
+interface Product {
+  _id: string;
+  name: string;
+  price: number;
+  description?: string;
+  imageUrl?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+interface ProductsResponse {
+  items: Product[];
+  total: number;
+}
+
+const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:5000";
+const PAGE_SIZE = 10;
 
 export default function AdminProducts() {
-  const [items, setItems] = useState<Product[]>([]);
-  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
-  const [err, setErr] = useState("");
+  const [products, setProducts] = useState<Product[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  // create form
-  const [form, setForm] = useState({ name: "", price: "", category: "", imageUrl: "" });
-  const [restId, setRestId] = useState<string>("");
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
 
-  // list filters
-  const [filterRestId, setFilterRestId] = useState<string>("");
-
-  // edit dialog
-  const [editing, setEditing] = useState<ProductEditData | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const loadRestaurants = async () => {
-    const { data } = await api.get<Restaurant[]>("/api/restaurants"); // admin endpoint
-    setRestaurants(data);
-    // ilk seçimi otomatik doldur (create formu)
-    if (!restId && data.length) setRestId(data[0]._id);
-  };
+  const pageCount = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total]);
 
-  const loadProducts = async (rid?: string) => {
-    const params: any = { limit: 100, sort: "createdAt:desc" };
-    if (rid) params.restaurantId = rid;
-    const { data } = await api.get("/api/products", { params });
-    setItems(data.items);
-  };
+  const totalStockValue = useMemo(() => {
+    return products.reduce((sum, p) => sum + (typeof p.price === "number" ? p.price : 0), 0);
+  }, [products]);
+
+  const queryParams = useMemo(() => {
+    const params: Record<string, string> = {
+      limit: String(PAGE_SIZE),
+      page: String(page),
+      sort: "createdAt:desc",
+    };
+    if (search.trim()) params.q = search.trim();
+    return params;
+  }, [page, search]);
+
+  const fetchProducts = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await axios.get<ProductsResponse>(`${API_BASE}/api/products`, {
+        params: queryParams,
+      });
+
+      setProducts(res.data.items);
+      setTotal(res.data.total);
+    } catch (err) {
+      const axiosErr = err as AxiosError<{ message?: string }>;
+      setError(
+        axiosErr.response?.data?.message || axiosErr.message || "Failed to fetch products"
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [queryParams]);
 
   useEffect(() => {
-    (async () => {
-      try {
-        await Promise.all([loadRestaurants(), loadProducts()]);
-      } catch (e: any) {
-        setErr(e?.response?.data?.error || "Load failed");
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    fetchProducts();
+  }, [fetchProducts]);
 
-  const create = async () => {
-    setErr("");
-    try {
-      await api.post("/api/products", {
-        name: form.name,
-        price: Number(form.price),
-        category: form.category || "general",
-        imageUrl: form.imageUrl || "",
-        restaurantId: restId, // <-- ÖNEMLİ
-      });
-      setForm({ name: "", price: "", category: "", imageUrl: "" });
-      await loadProducts(filterRestId || undefined);
-    } catch (e: any) {
-      setErr(e?.response?.data?.error || "Create failed");
-    }
-  };
-
-  const remove = async (id: string) => {
-    setErr("");
-    try {
-      await api.delete(`/api/products/${id}`);
-      await loadProducts(filterRestId || undefined);
-    } catch (e: any) {
-      setErr(e?.response?.data?.error || "Delete failed");
-    }
-  };
-
-  // id/_id fallback
-  const openEdit = (p: Product) => {
-    const pid = (p as any)._id ?? (p as any).id;
-    setEditing({
-      _id: pid,
-      name: p.name,
-      price: p.price,
-      category: (p as any).category,
-      imageUrl: (p as any).imageUrl,
-      description: (p as any).description,
-      isAvailable: (p as any).isAvailable,
-    });
+  const handleOpenEdit = (id: string) => {
+    setSelectedId(id);
     setEditOpen(true);
   };
 
-  const handleSaved = async (_updated: ProductEditData) => {
+  const handleCloseEdit = () => {
     setEditOpen(false);
-    setEditing(null);
-    await loadProducts(filterRestId || undefined);
+    setSelectedId(null);
   };
 
-  const filteredItems = useMemo(() => items, [items]);
+  const handleSaved = () => {
+    fetchProducts();
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Bu ürünü silmek istediğine emin misin?")) return;
+    try {
+      await axios.delete(`${API_BASE}/api/products/${id}`);
+      const remaining = products.length - 1;
+      if (remaining === 0 && page > 1) {
+        setPage((prev) => prev - 1);
+      } else {
+        fetchProducts();
+      }
+    } catch (err) {
+      const axiosErr = err as AxiosError<{ message?: string }>;
+      alert(
+        axiosErr.response?.data?.message || axiosErr.message || "Delete failed"
+      );
+    }
+  };
+
+  const formatCurrency = (value: number) =>
+    new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(value);
 
   return (
-    <Container sx={{ mt: 3 }}>
-      <Typography variant="h5" gutterBottom>Admin · Products</Typography>
-      {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+    <Box p={3}>
+      {/* Header */}
+      <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+        <Typography variant="h5">Products</Typography>
 
-      {/* Filter bar */}
-      <Box sx={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 2, mb: 2 }}>
-        <TextField
-          select
-          label="Filter by restaurant"
-          value={filterRestId}
-          onChange={async (e) => {
-            const v = e.target.value;
-            setFilterRestId(v);
-            await loadProducts(v || undefined);
-          }}
-        >
-          <MenuItem value=""><em>All restaurants</em></MenuItem>
-          {restaurants.map(r => (
-            <MenuItem key={r._id} value={r._id}>{r.name}</MenuItem>
-          ))}
-        </TextField>
-        <Button variant="outlined" onClick={() => loadProducts(filterRestId || undefined)}>Refresh</Button>
+        <Box display="flex" gap={1} alignItems="center">
+          <TextField
+            size="small"
+            placeholder="Search by name/desc"
+            value={search}
+            onChange={(e) => {
+              setPage(1);
+              setSearch(e.target.value);
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+          />
+          <Tooltip title="Refresh">
+            <IconButton onClick={fetchProducts} disabled={loading}>
+              <RefreshIcon />
+            </IconButton>
+          </Tooltip>
+        </Box>
       </Box>
 
-      {/* Create form */}
-      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 2, mb: 2 }}>
-        <TextField label="Name" value={form.name} onChange={(e) => setForm(s => ({ ...s, name: e.target.value }))} />
-        <TextField label="Price" type="number" value={form.price} onChange={(e) => setForm(s => ({ ...s, price: e.target.value }))} />
-        <TextField label="Category" value={form.category} onChange={(e) => setForm(s => ({ ...s, category: e.target.value }))} />
-        <TextField label="Image URL" value={form.imageUrl} onChange={(e) => setForm(s => ({ ...s, imageUrl: e.target.value }))} />
-        <TextField
-          select
-          label="Restaurant"
-          value={restId}
-          onChange={(e) => setRestId(e.target.value)}
-        >
-          {restaurants.map(r => (
-            <MenuItem key={r._id} value={r._id}>{r.name}</MenuItem>
-          ))}
-        </TextField>
-      </Box>
-      <Button
-        variant="contained"
-        onClick={create}
-        disabled={!form.name || !form.price || !restId}
+      {/* Summary Bar */}
+      <Box
+        mb={2}
+        p={1.5}
+        bgcolor="#f9f9f9"
+        borderRadius={1}
+        display="flex"
+        justifyContent="space-between"
+        alignItems="center"
+        flexWrap="wrap"
+        gap={1}
       >
-        Create Product
-      </Button>
+        <Typography variant="body2" color="text.secondary">
+          Total Products: <strong>{loading ? "…" : total}</strong>
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Showing: <strong>{loading ? "…" : products.length}</strong> / {PAGE_SIZE} per page
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Total Stock Value: <strong>{loading ? "…" : formatCurrency(totalStockValue)}</strong>
+        </Typography>
+      </Box>
 
-      {/* List */}
-      <Grid container spacing={2} sx={{ mt: 2 }}>
-        {filteredItems.map((p: any) => {
-          const key = p._id ?? p.id;
-          return (
-            <Grid item xs={12} md={6} lg={4} key={key}>
-              <Card>
-                <CardContent>
-                  <Typography variant="h6">{p.name}</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {(p.category || "—")} · {p.price} ₺ {p.isAvailable === false ? " · (unavailable)" : ""}
-                  </Typography>
-                  {filterRestId && (
-                    <Box sx={{ mt: 1 }}>
-                      <Chip size="small" label={`rid: ${filterRestId.substring(0,6)}…`} />
-                    </Box>
-                  )}
-                </CardContent>
-                <CardActions>
-                  <Button size="small" onClick={() => openEdit(p)}>Edit</Button>
-                  <Button size="small" color="error" onClick={() => remove(key)}>Delete</Button>
-                </CardActions>
-              </Card>
-            </Grid>
-          );
-        })}
-      </Grid>
+      {/* Product Table */}
+      <Card>
+        <CardContent>
+          {loading ? (
+            <Box py={6} display="flex" gap={2} alignItems="center" justifyContent="center">
+              <CircularProgress />
+              <Typography>Loading…</Typography>
+            </Box>
+          ) : error ? (
+            <Box p={2} sx={{ bgcolor: "#ffe6e6", color: "#b00020", borderRadius: 2 }}>
+              {error}
+            </Box>
+          ) : (
+            <>
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell width={64}>Image</TableCell>
+                      <TableCell>Name</TableCell>
+                      <TableCell align="right">Price</TableCell>
+                      <TableCell>Description</TableCell>
+                      <TableCell align="right" width={140}>
+                        Actions
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {products.map((p) => (
+                      <TableRow key={p._id} hover>
+                        <TableCell>
+                          {p.imageUrl ? (
+                            <Box
+                              component="img"
+                              src={p.imageUrl}
+                              alt={p.name}
+                              sx={{
+                                width: 56,
+                                height: 40,
+                                objectFit: "cover",
+                                borderRadius: 1,
+                                border: "1px solid #eee",
+                              }}
+                            />
+                          ) : (
+                            <Box
+                              sx={{
+                                width: 56,
+                                height: 40,
+                                borderRadius: 1,
+                                border: "1px dashed #ccc",
+                              }}
+                            />
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Typography fontWeight={600}>{p.name}</Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          {typeof p.price === "number"
+                            ? formatCurrency(p.price)
+                            : String(p.price)}
+                        </TableCell>
+                        <TableCell sx={{ maxWidth: 420 }}>
+                          <Typography variant="body2" color="text.secondary" noWrap>
+                            {p.description}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Tooltip title="Edit">
+                            <IconButton onClick={() => handleOpenEdit(p._id)} size="small">
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Delete">
+                            <IconButton
+                              onClick={() => handleDelete(p._id)}
+                              size="small"
+                              color="error"
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    ))}
 
+                    {products.length === 0 && !loading && (
+                      <TableRow>
+                        <TableCell colSpan={5}>
+                          <Box py={4} textAlign="center" color="text.secondary">
+                            No products found
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {/* Pagination */}
+              <Box mt={2} display="flex" justifyContent="center">
+                <Pagination
+                  color="primary"
+                  page={page}
+                  count={pageCount}
+                  onChange={(_, value) => setPage(value)}
+                />
+              </Box>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Edit Dialog */}
       <ProductEditDialog
         open={editOpen}
-        product={editing}
-        onClose={() => { setEditOpen(false); setEditing(null); }}
+        productId={selectedId}
+        onClose={handleCloseEdit}
         onSaved={handleSaved}
       />
-    </Container>
+    </Box>
   );
 }

@@ -1,3 +1,4 @@
+// frontend/src/components/ProductCard.tsx
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
 import CardMedia from "@mui/material/CardMedia";
@@ -10,8 +11,9 @@ import { useState } from "react";
 import { addToCart } from "../utils/cart";
 import { useAuth } from "../context/AuthContext";
 
-type P = {
-  _id?: string; id?: string;
+type Product = {
+  _id?: string;
+  id?: string;
   name: string;
   price: number;
   category?: string;
@@ -19,7 +21,7 @@ type P = {
   description?: string;
 };
 
-const FALLBACK =
+const FALLBACK: string =
   "data:image/svg+xml;charset=UTF-8," +
   encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800">
@@ -30,16 +32,27 @@ const FALLBACK =
   </text>
 </svg>`);
 
-export default function ProductCard({ product }: { product: P }) {
-  const key = (product as any)._id ?? (product as any).id;
+export default function ProductCard({ product }: { product: Product }) {
+  // id hesaplama (any kullanmadan)
+  const key = product._id ?? product.id ?? product.name;
   const src = product.imageUrl || FALLBACK;
+
   const { auth } = useAuth();
   const role = auth?.user?.role;
+
   const [ok, setOk] = useState(false);
 
   const onAdd = () => {
-    addToCart(product as any, 1);
+    // addToCart fonksiyonunun imzasını bilmediğimiz için minimum kapsamda cast.
+    addToCart(product as unknown as any, 1);
     setOk(true);
+  };
+
+  const handleImgError = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    if (img.src !== FALLBACK) {
+      img.src = FALLBACK;
+    }
   };
 
   return (
@@ -59,7 +72,7 @@ export default function ProductCard({ product }: { product: P }) {
           component="img"
           src={src}
           alt={product.name}
-          onError={(e: any) => { if (e?.currentTarget?.src !== FALLBACK) e.currentTarget.src = FALLBACK; }}
+          onError={handleImgError}
           sx={{
             position: "absolute",
             inset: 0,
@@ -67,21 +80,37 @@ export default function ProductCard({ product }: { product: P }) {
             height: "100%",
             objectFit: "cover",
             transition: "transform .3s ease",
-            "&:hover": { transform: "scale(1.02)" }
+            "&:hover": { transform: "scale(1.02)" },
           }}
         />
       </Box>
 
       {/* Metin + CTA */}
       <CardContent sx={{ flexGrow: 1 }}>
-        <Typography variant="subtitle1" gutterBottom noWrap sx={{ fontSize: 18, fontWeight: 600 }}>
+        <Typography
+          variant="subtitle1"
+          gutterBottom
+          noWrap
+          sx={{ fontSize: 18, fontWeight: 600 }}
+        >
           {product.name}
         </Typography>
+
         <Typography variant="body2" color="text.secondary" sx={{ fontSize: 14 }}>
-          {(product.category || "—")} · {product.price} ₺
+          {(product.category || "—")} ·{" "}
+          {typeof product.price === "number"
+            ? product.price.toFixed(2)
+            : product.price}{" "}
+          ₺
         </Typography>
+
         {product.description && (
-          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }} noWrap>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ display: "block", mt: 0.5 }}
+            noWrap
+          >
             {product.description}
           </Typography>
         )}
@@ -101,6 +130,7 @@ export default function ProductCard({ product }: { product: P }) {
         autoHideDuration={1600}
         onClose={() => setOk(false)}
         message="Ürün sepete eklendi"
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
       />
     </Card>
   );

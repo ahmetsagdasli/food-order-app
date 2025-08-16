@@ -1,44 +1,85 @@
-import { useEffect, useState } from "react";
-import Container from "@mui/material/Container";
-import Typography from "@mui/material/Typography";
-import Paper from "@mui/material/Paper";
-import Grid from "@mui/material/Grid";
-import IconButton from "@mui/material/IconButton";
-import Button from "@mui/material/Button";
-import Box from "@mui/material/Box";
-import Divider from "@mui/material/Divider";
-import TextField from "@mui/material/TextField";
+// frontend/src/pages/Cart.tsx
+import { useEffect, useMemo, useCallback, useState } from "react";
+import { useNavigate, Link as RouterLink } from "react-router-dom";
+import {
+  Container,
+  Typography,
+  Paper,
+  Grid,
+  IconButton,
+  Button,
+  Box,
+  Divider,
+  TextField,
+} from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import AddIcon from "@mui/icons-material/Add";
 import RemoveIcon from "@mui/icons-material/Remove";
-import { getCart, updateQty, removeItem, totalSnapshot } from "../utils/cart";
+import {
+  getCart,
+  updateQty,
+  removeItem,
+} from "../utils/cart";
 import type { CartItem } from "../utils/cart";
-import { useNavigate, Link as RouterLink } from "react-router-dom";
 
 export default function Cart() {
   const [items, setItems] = useState<CartItem[]>([]);
-  const nav = useNavigate();
+  const navigate = useNavigate();
 
-  const load = () => setItems(getCart());
+  const formatCurrency = useCallback(
+    (value: number) =>
+      new Intl.NumberFormat("tr-TR", {
+        style: "currency",
+        currency: "TRY",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(value),
+    []
+  );
 
-  useEffect(() => {
-    load();
-    const onChange = () => load();
-    window.addEventListener("cart:change", onChange as any);
-    return () => window.removeEventListener("cart:change", onChange as any);
+  const loadCart = useCallback(() => {
+    setItems(getCart());
   }, []);
 
-  const inc = (id: string) =>
-    updateQty(id, (items.find((x) => x.productId === id)?.qty || 0) + 1);
-  const dec = (id: string) =>
-    updateQty(id, (items.find((x) => x.productId === id)?.qty || 0) - 1);
-  const set = (id: string, v: number) =>
-    updateQty(id, Math.max(0, Math.floor(Number(v) || 0)));
-  const del = (id: string) => removeItem(id);
+  useEffect(() => {
+    loadCart();
+    const onChange = () => loadCart();
+    window.addEventListener("cart:change", onChange as EventListener);
+    return () => window.removeEventListener("cart:change", onChange as EventListener);
+  }, [loadCart]);
 
-  const total = totalSnapshot();
+  // Toplamı her render’da güncel tut (store’daki snapshot yerine mevcut items’tan hesapla)
+  const total = useMemo(
+    () => items.reduce((sum, it) => sum + it.price * it.qty, 0),
+    [items]
+  );
 
-  if (!items.length) {
+  const increase = useCallback(
+    (id: string) => {
+      const current = items.find((x) => x.productId === id)?.qty ?? 0;
+      updateQty(id, current + 1);
+    },
+    [items]
+  );
+
+  const decrease = useCallback(
+    (id: string) => {
+      const current = items.find((x) => x.productId === id)?.qty ?? 0;
+      updateQty(id, Math.max(0, current - 1));
+    },
+    [items]
+  );
+
+  const setExact = useCallback((id: string, value: string | number) => {
+    const n = Math.max(0, Math.floor(Number(value) || 0));
+    updateQty(id, n);
+  }, []);
+
+  const remove = useCallback((id: string) => {
+    removeItem(id);
+  }, []);
+
+  if (items.length === 0) {
     return (
       <Container sx={{ mt: 4 }}>
         <Typography variant="h5" gutterBottom>
@@ -77,35 +118,55 @@ export default function Cart() {
                   {it.category || "—"}
                 </Typography>
               </Grid>
+
               <Grid item xs={12} md={3}>
-                <Typography>{it.price.toFixed(2)} ₺</Typography>
+                <Typography>{formatCurrency(it.price)}</Typography>
               </Grid>
+
               <Grid item xs={12} md={3}>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                  <IconButton size="small" onClick={() => dec(it.productId)}>
+                  <IconButton
+                    size="small"
+                    onClick={() => decrease(it.productId)}
+                    disabled={it.qty <= 0}
+                    aria-label="decrease quantity"
+                  >
                     <RemoveIcon />
                   </IconButton>
+
                   <TextField
                     size="small"
                     value={it.qty}
-                    onChange={(e) => set(it.productId, Number(e.target.value))}
+                    onChange={(e) => setExact(it.productId, e.target.value)}
                     inputProps={{
                       inputMode: "numeric",
                       pattern: "[0-9]*",
-                      style: { width: 48, textAlign: "center" },
+                      style: { width: 56, textAlign: "center" },
+                      "aria-label": "quantity",
                     }}
                   />
-                  <IconButton size="small" onClick={() => inc(it.productId)}>
+
+                  <IconButton
+                    size="small"
+                    onClick={() => increase(it.productId)}
+                    aria-label="increase quantity"
+                  >
                     <AddIcon />
                   </IconButton>
                 </Box>
               </Grid>
+
               <Grid item xs={12} md={1}>
-                <IconButton color="error" onClick={() => del(it.productId)}>
+                <IconButton
+                  color="error"
+                  onClick={() => remove(it.productId)}
+                  aria-label="remove item"
+                >
                   <DeleteIcon />
                 </IconButton>
               </Grid>
             </Grid>
+
             <Divider sx={{ my: 1.5 }} />
           </Box>
         ))}
@@ -119,12 +180,12 @@ export default function Cart() {
           }}
         >
           <Typography variant="h6">Toplam</Typography>
-          <Typography variant="h6">{total.toFixed(2)} ₺</Typography>
+          <Typography variant="h6">{formatCurrency(total)}</Typography>
         </Box>
 
         <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 2, gap: 1 }}>
-          <Button onClick={() => nav("/products")}>Alışverişe devam et</Button>
-          <Button variant="contained" onClick={() => nav("/checkout")}>
+          <Button onClick={() => navigate("/products")}>Alışverişe devam et</Button>
+          <Button variant="contained" onClick={() => navigate("/checkout")}>
             Ödemeye geç
           </Button>
         </Box>

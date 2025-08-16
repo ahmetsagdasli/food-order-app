@@ -17,6 +17,17 @@ export type Filters = {
   isAvailable?: boolean;
 };
 
+type Props = {
+  allCategories: string[];
+  priceMinMax: { min: number; max: number };
+  value: Filters;
+  onChange: (next: Filters) => void;
+  onApply?: () => void;
+  onReset?: () => void;
+  disabled?: boolean;
+  title?: string;
+};
+
 export default function FiltersPanel({
   allCategories,
   priceMinMax,
@@ -26,16 +37,7 @@ export default function FiltersPanel({
   onReset,
   disabled,
   title = "Filters",
-}: {
-  allCategories: string[];
-  priceMinMax: { min: number; max: number };
-  value: Filters;
-  onChange: (next: Filters) => void;
-  onApply?: () => void;
-  onReset?: () => void;
-  disabled?: boolean;
-  title?: string;
-}) {
+}: Props) {
   const [local, setLocal] = useState<Filters>(value);
 
   useEffect(() => setLocal(value), [value]);
@@ -44,23 +46,15 @@ export default function FiltersPanel({
 
   const toggleCat = (c: string) => {
     const next = new Set(local.categories);
-    if (next.has(c)) next.delete(c);
-    else next.add(c);
+    next.has(c) ? next.delete(c) : next.add(c);
     setLocal({ ...local, categories: Array.from(next) });
   };
-
-  const priceMarks = useMemo(() => {
-    const { min, max } = priceMinMax;
-    return [
-      { value: min, label: `${min}` },
-      { value: max, label: `${max}` },
-    ];
-  }, [priceMinMax]);
 
   const apply = () => {
     onChange(local);
     onApply?.();
   };
+
   const reset = () => {
     const def: Filters = {
       search: "",
@@ -73,23 +67,41 @@ export default function FiltersPanel({
     onReset?.();
   };
 
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    apply();
+  };
+
   return (
-    <Box sx={{ p: 2, display: "grid", gap: 2 }}>
-      <Typography variant="h6" sx={{ mb: 1 }}>{title}</Typography>
+    <Box
+      component="form"
+      onSubmit={onSubmit}
+      sx={{ p: 2, display: "grid", gap: 2 }}
+    >
+      <Typography variant="h6" sx={{ mb: 1 }}>
+        {title}
+      </Typography>
 
       <TextField
         label="Search"
         size="small"
         value={local.search}
         onChange={(e) => setLocal({ ...local, search: e.target.value })}
+        placeholder="Name, keyword…"
+        // İstersen aşağıdaki onKeyDown'a gerek yok; form submit Enter'ı zaten yakalar.
+        // onKeyDown={(e) => { if (e.key === "Enter") apply(); }}
       />
 
       <Divider />
 
-      <Typography variant="subtitle2" sx={{ mt: 1 }}>Categories</Typography>
+      <Typography variant="subtitle2" sx={{ mt: 1 }}>
+        Categories
+      </Typography>
       <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
         {allCategories.length === 0 ? (
-          <Typography variant="body2" color="text.secondary">No categories</Typography>
+          <Typography variant="body2" color="text.secondary">
+            No categories
+          </Typography>
         ) : (
           allCategories.map((c) => (
             <Chip
@@ -125,9 +137,12 @@ export default function FiltersPanel({
               checked={!!local.isAvailable}
               indeterminate={local.isAvailable === undefined}
               onChange={(e) =>
-                setLocal({ ...local, isAvailable: e.target.indeterminate ? undefined : e.target.checked })
+                setLocal({
+                  ...local,
+                  isAvailable:
+                    local.isAvailable === undefined ? true : e.target.checked,
+                })
               }
-              indeterminateIcon={undefined}
             />
           }
           label="Only available"
@@ -135,8 +150,12 @@ export default function FiltersPanel({
       </FormGroup>
 
       <Box sx={{ display: "flex", gap: 1, pt: 1 }}>
-        <Button onClick={reset} disabled={disabled}>Reset</Button>
-        <Button variant="contained" onClick={apply} disabled={disabled}>Apply</Button>
+        <Button onClick={reset} disabled={disabled} type="button">
+          Reset
+        </Button>
+        <Button variant="contained" disabled={disabled} type="submit">
+          Apply
+        </Button>
       </Box>
     </Box>
   );

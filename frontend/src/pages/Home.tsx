@@ -19,7 +19,7 @@ import FiltersPanel, { type Filters } from "../components/FiltersPanel";
 import { Link as RouterLink } from "react-router-dom";
 
 type Product = {
-  _id?: string; id?: string;
+  _id: string;
   name: string;
   price: number;
   category?: string;
@@ -27,9 +27,17 @@ type Product = {
   description?: string;
 };
 
+type MetaResponse = {
+  categories: string[];
+  price: { min: number; max: number };
+};
+
+type ProductsResponse = {
+  items: Product[];
+};
+
 const SIDEBAR_WIDTH = 280;
 
-/** Full-bleed wrapper: parent Container/gutter olsa bile viewport soluna sıfırlar */
 function FullBleed({ children }: { children: React.ReactNode }) {
   return (
     <Box
@@ -52,16 +60,15 @@ export default function Home() {
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // map & restaurants
   const [mapOpen, setMapOpen] = useState(true);
   const [restaurants, setRestaurants] = useState<RestMarker[]>([]);
   const [selected, setSelected] = useState<{ id: string; name: string } | null>(null);
 
-  // filters
-  const [meta, setMeta] = useState<{ categories: string[]; price: { min: number; max: number } }>({
+  const [meta, setMeta] = useState<MetaResponse>({
     categories: [],
     price: { min: 0, max: 0 },
   });
+
   const [filters, setFilters] = useState<Filters>({
     search: "",
     categories: [],
@@ -74,11 +81,14 @@ export default function Home() {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const queryParams = (restaurantId?: string) => {
-    const p: any = { limit: 24, sort: "createdAt:desc" };
+    const p: Record<string, unknown> = { limit: 24, sort: "createdAt:desc" };
     if (restaurantId) p.restaurantId = restaurantId;
     if (filters.search) p.search = filters.search;
     if (filters.categories.length) p.categories = filters.categories.join(",");
-    if (filters.price && (filters.price[0] !== meta.price.min || filters.price[1] !== meta.price.max)) {
+    if (
+      filters.price &&
+      (filters.price[0] !== meta.price.min || filters.price[1] !== meta.price.max)
+    ) {
       p.priceMin = filters.price[0];
       p.priceMax = filters.price[1];
     }
@@ -87,9 +97,12 @@ export default function Home() {
   };
 
   const loadProducts = async (restaurantId?: string) => {
-    setErr(""); setLoading(true);
+    setErr("");
+    setLoading(true);
     try {
-      const { data } = await api.get("/api/products", { params: queryParams(restaurantId) });
+      const { data } = await api.get<ProductsResponse>("/api/products", {
+        params: queryParams(restaurantId),
+      });
       setItems(data.items);
     } catch (e: any) {
       setErr(e?.response?.data?.error || "Load failed");
@@ -100,46 +113,52 @@ export default function Home() {
 
   const loadRestaurants = async () => {
     try {
-      const { data } = await api.get<RestMarker[]>("/api/public/restaurants", { params: { approved: true, withCoords: true } });
-      setRestaurants(data.filter((r: any) => r.lat != null && r.lng != null) as any);
-    } catch { /* silent */ }
+      const { data } = await api.get<RestMarker[]>("/api/public/restaurants", {
+        params: { approved: true, withCoords: true },
+      });
+      setRestaurants(data.filter((r) => r.lat != null && r.lng != null));
+    } catch {
+      /* silent */
+    }
   };
 
   const loadMeta = async (restaurantId?: string) => {
     try {
-      const { data } = await api.get("/api/products/meta", { params: { restaurantId } });
+      const { data } = await api.get<MetaResponse>("/api/products/meta", {
+        params: { restaurantId },
+      });
       const min = Number(data.price?.min ?? 0);
       const max = Number(data.price?.max ?? 0);
       setMeta({ categories: data.categories || [], price: { min, max } });
       setFilters((prev) => ({
         ...prev,
         price: [min, max],
-        categories: prev.categories.filter((c) => (data.categories || []).includes(c)),
+        categories: prev.categories.filter((c) => data.categories.includes(c)),
       }));
-    } catch { /* silent */ }
+    } catch {
+      /* silent */
+    }
   };
 
   useEffect(() => {
     loadProducts();
     loadRestaurants();
     loadMeta();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     loadProducts(selected?.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters]);
+  }, [filters, selected]);
 
-  const filteredTitle = useMemo(() => {
-    if (!selected) return "Popular Dishes";
-    return `Popular Dishes — ${selected.name}`;
-  }, [selected]);
+  const filteredTitle = useMemo(
+    () => (selected ? `Popular Dishes — ${selected.name}` : "Popular Dishes"),
+    [selected]
+  );
 
   const clearRestaurantFilter = async () => {
     setSelected(null);
-    await loadMeta(undefined);
-    await loadProducts(undefined);
+    await loadMeta();
+    await loadProducts();
   };
 
   const handleSelectRestaurant = async (r: RestMarker) => {
@@ -148,9 +167,16 @@ export default function Home() {
     await loadProducts(r._id);
   };
 
-  // Sidebar content (sticky)
   const sidebar = (
-    <Box sx={{ width: SIDEBAR_WIDTH, position: "sticky", top: 16, maxHeight: "calc(100vh - 32px)", overflow: "auto" }}>
+    <Box
+      sx={{
+        width: SIDEBAR_WIDTH,
+        position: "sticky",
+        top: 16,
+        maxHeight: "calc(100vh - 32px)",
+        overflow: "auto",
+      }}
+    >
       <FiltersPanel
         allCategories={meta.categories}
         priceMinMax={meta.price}
@@ -166,17 +192,9 @@ export default function Home() {
 
   return (
     <>
-      {/* HERO */}
       <Hero />
-
-      {/* FULL-BLEED GRID: filtre ekranın en solunda */}
       <FullBleed>
-        <Box
-          sx={{
-            px: { xs: 0, md: 0 },
-            py: 2,
-          }}
-        >
+        <Box sx={{ py: 2 }}>
           <Box
             sx={{
               display: { xs: "block", md: "grid" },
@@ -184,7 +202,6 @@ export default function Home() {
               alignItems: "start",
             }}
           >
-            {/* SOL: en sol filtre (md+) */}
             <Box
               sx={{
                 borderRight: { md: 1 },
@@ -195,10 +212,17 @@ export default function Home() {
               {sidebar}
             </Box>
 
-            {/* SAĞ: MAP + PRODUCTS */}
             <Box sx={{ px: { xs: 2, md: 3 } }}>
-              {/* üst çubuk: mobil filtre + restoran chip */}
-              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1, gap: 1, flexWrap: "wrap" }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  mb: 1,
+                  gap: 1,
+                  flexWrap: "wrap",
+                }}
+              >
                 {!mdUp && (
                   <IconButton onClick={() => setDrawerOpen(true)} aria-label="filters">
                     <MenuIcon />
@@ -215,24 +239,35 @@ export default function Home() {
                 )}
               </Box>
 
-              {/* Harita kontrol butonları */}
-              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1, gap: 1, flexWrap: "wrap" }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  mb: 1,
+                  gap: 1,
+                  flexWrap: "wrap",
+                }}
+              >
                 <ButtonGroup variant="outlined" size="small">
-                  <Button onClick={() => setMapOpen((v) => !v)}>{mapOpen ? "Haritayı Gizle" : "Haritayı Göster"}</Button>
-                  <Button component={RouterLink} to="/map">Tam ekran harita</Button>
+                  <Button onClick={() => setMapOpen((v) => !v)}>
+                    {mapOpen ? "Haritayı Gizle" : "Haritayı Göster"}
+                  </Button>
+                  <Button component={RouterLink} to="/map">
+                    Tam ekran harita
+                  </Button>
                 </ButtonGroup>
-                <span />
               </Box>
 
-              {/* MAP */}
               {mapOpen && (
                 <Box sx={{ borderRadius: 2, overflow: "hidden", boxShadow: 3, mb: 3 }}>
                   <MapInline items={restaurants} onSelect={handleSelectRestaurant} />
                 </Box>
               )}
 
-              {/* PRODUCTS */}
-              <Typography variant="h5" gutterBottom>{filteredTitle}</Typography>
+              <Typography variant="h5" gutterBottom>
+                {filteredTitle}
+              </Typography>
               {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
 
               {loading ? (
@@ -240,15 +275,7 @@ export default function Home() {
               ) : (
                 <Grid container spacing={3}>
                   {items.map((p) => (
-                    <Grid
-                      item
-                      xs={12}
-                      sm={6}
-                      md={6}
-                      lg={4}
-                      xl={4}
-                      key={(p as any)._id ?? (p as any).id}
-                    >
+                    <Grid key={p._id} item xs={12} sm={6} md={6} lg={4} xl={4}>
                       <ProductCard product={p} />
                     </Grid>
                   ))}
@@ -257,7 +284,6 @@ export default function Home() {
             </Box>
           </Box>
 
-          {/* Mobil: filtre Drawer (tüm yükseklik) */}
           <Drawer
             anchor="left"
             open={!mdUp && drawerOpen}

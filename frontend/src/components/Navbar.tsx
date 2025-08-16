@@ -1,3 +1,4 @@
+// frontend/src/components/Navbar.tsx
 import AppBar from "@mui/material/AppBar";
 import Toolbar from "@mui/material/Toolbar";
 import Typography from "@mui/material/Typography";
@@ -10,16 +11,33 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import useCartCount from "../hooks/useCartCount";
 
+type UserRole = "user" | "merchant" | "admin" | undefined;
+
 export default function Navbar() {
   const { auth, logout } = useAuth();
   const navigate = useNavigate();
-  const role = auth?.user?.role;
-  const cartCount = useCartCount();
+
+  const role: UserRole = auth?.user?.role;
+  const cartCount: number = useCartCount();
+
+  const isGuest = !auth;
+  const isUser = role === "user";
+  const isMerchant = role === "merchant";
+  const isAdmin = role === "admin";
 
   const handleLogout = () => {
     logout();
     navigate("/login");
   };
+
+  const UserSection = () => (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1, ml: 1 }}>
+      <Typography variant="body2">Hi, {auth?.user?.name}</Typography>
+      <Button color="inherit" onClick={handleLogout}>
+        Logout
+      </Button>
+    </Box>
+  );
 
   return (
     <AppBar position="static">
@@ -33,57 +51,74 @@ export default function Navbar() {
           FoodOrder
         </Typography>
 
-        {/* Public links */}
-        <Button color="inherit" component={Link} to="/products">Products</Button>
-        <Button color="inherit" component={Link} to="/map">Map</Button>
+        {/* Public (Guest & User) */}
+        {(isGuest || isUser) && (
+          <>
+            <Button color="inherit" component={Link} to="/products">
+              Products
+            </Button>
+            <Button color="inherit" component={Link} to="/map">
+              Map
+            </Button>
+          </>
+        )}
 
         {/* Guest */}
-        {!auth && (
+        {isGuest && (
           <>
-            <Button color="inherit" component={Link} to="/login">Login</Button>
-            <Button color="inherit" component={Link} to="/register">Register</Button>
+            <Button color="inherit" component={Link} to="/login">
+              Login
+            </Button>
+            <Button color="inherit" component={Link} to="/register">
+              Register
+            </Button>
           </>
         )}
 
         {/* Customer */}
-        {role === "user" && (
+        {isUser && (
           <>
             <IconButton color="inherit" onClick={() => navigate("/cart")}>
               <Badge badgeContent={cartCount} color="secondary">
                 <ShoppingCartIcon />
               </Badge>
             </IconButton>
-            <Button color="inherit" component={Link} to="/orders">My Orders</Button>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1, ml: 1 }}>
-              <Typography variant="body2">Hi, {auth?.user?.name}</Typography>
-              <Button color="inherit" onClick={handleLogout}>Logout</Button>
-            </Box>
+            <Button color="inherit" component={Link} to="/orders">
+              My Orders
+            </Button>
+            <UserSection />
           </>
         )}
 
         {/* Merchant */}
-        {role === "merchant" && (
+        {isMerchant && (
           <>
-            <Button color="inherit" component={Link} to="/merchant/restaurant">My Restaurant</Button>
-            <Button color="inherit" component={Link} to="/merchant/menu">My Menu</Button>
-            <Button color="inherit" component={Link} to="/merchant/orders">Orders</Button>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1, ml: 1 }}>
-              <Typography variant="body2">Hi, {auth?.user?.name}</Typography>
-              <Button color="inherit" onClick={handleLogout}>Logout</Button>
-            </Box>
+            <Button color="inherit" component={Link} to="/merchant/restaurant">
+              My Restaurant
+            </Button>
+            <Button color="inherit" component={Link} to="/merchant/menu">
+              My Menu
+            </Button>
+            <Button color="inherit" component={Link} to="/merchant/orders">
+              Orders
+            </Button>
+            <UserSection />
           </>
         )}
 
         {/* Admin */}
-        {role === "admin" && (
+        {isAdmin && (
           <>
-            <Button color="inherit" component={Link} to="/admin/restaurants">Restaurants</Button>
-            <Button color="inherit" component={Link} to="/admin/products">Products</Button>
-            <Button color="inherit" component={Link} to="/admin/orders">Orders</Button>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1, ml: 1 }}>
-              <Typography variant="body2">Hi, {auth?.user?.name}</Typography>
-              <Button color="inherit" onClick={handleLogout}>Logout</Button>
-            </Box>
+            <Button color="inherit" component={Link} to="/admin/restaurants">
+              Restaurants
+            </Button>
+            <Button color="inherit" component={Link} to="/admin/products">
+              Products
+            </Button>
+            <Button color="inherit" component={Link} to="/admin/orders">
+              Orders
+            </Button>
+            <UserSection />
           </>
         )}
       </Toolbar>

@@ -1,146 +1,303 @@
-import { useEffect, useState } from "react";
+// frontend/src/pages/MerchantMenu.tsx
+import { useEffect, useState, useCallback } from "react";
+import {
+  Container,
+  Typography,
+  TextField,
+  Button,
+  Grid,
+  Card,
+  CardContent,
+  CardActions,
+  Alert,
+  Box,
+  Chip,
+} from "@mui/material";
 import api from "../utils/api";
-import Container from "@mui/material/Container";
-import Typography from "@mui/material/Typography";
-import TextField from "@mui/material/TextField";
-import Button from "@mui/material/Button";
-import Grid from "@mui/material/Grid";
-import Card from "@mui/material/Card";
-import CardContent from "@mui/material/CardContent";
-import CardActions from "@mui/material/CardActions";
-import Alert from "@mui/material/Alert";
-import Box from "@mui/material/Box";
-import Chip from "@mui/material/Chip";
-import ProductEditDialog from "../components/ProductEditDialog";
-import type { ProductEditData } from "../components/ProductEditDialog";
+import ProductEditDialog, { type ProductEditData } from "../components/ProductEditDialog";
 
-type Product = { _id: string; name: string; price: number; category?: string; imageUrl?: string; description?: string; isAvailable?: boolean };
-type Rest = { _id: string; name: string; isApproved: boolean };
+// ==== Types ====
+interface Product {
+  readonly _id: string;
+  name: string;
+  price: number;
+  category?: string;
+  imageUrl?: string;
+  description?: string;
+  isAvailable?: boolean;
+}
 
-export default function MerchantMenu() {
-  const [items, setItems] = useState<Product[]>([]);
-  const [err, setErr] = useState("");
-  const [form, setForm] = useState({ name: "", price: "", category: "", imageUrl: "" });
-  const [rest, setRest] = useState<Rest | null>(null);
+interface Restaurant {
+  readonly _id: string;
+  name: string;
+  isApproved: boolean;
+}
 
-  const [editing, setEditing] = useState<ProductEditData | null>(null);
-  const [editOpen, setEditOpen] = useState(false);
+interface ProductFormData {
+  name: string;
+  price: string; // string tutuluyor, submit'te parse ediliyor
+  category: string;
+  imageUrl: string;
+}
 
-  const load = async () => {
-    setErr("");
+interface ProductsResponse {
+  items: Product[];
+}
+
+// ==== Constants ====
+const INITIAL_FORM_STATE: ProductFormData = {
+  name: "",
+  price: "",
+  category: "",
+  imageUrl: "",
+};
+
+const GRID_BREAKPOINTS = {
+  xs: 12,
+  md: 6,
+  lg: 4,
+} as const;
+
+const DEFAULT_CATEGORY = "general";
+
+// ==== Helpers ====
+function getErrorMessage(err: unknown, fallback = "Unexpected error"): string {
+  if (err instanceof Error) return err.message;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const anyErr = err as any;
+  return anyErr?.response?.data?.error || anyErr?.message || fallback;
+}
+
+// ==== Component ====
+export default function MerchantMenu(): JSX.Element {
+  // State
+  const [products, setProducts] = useState<Product[]>([]);
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
+  const [formData, setFormData] = useState<ProductFormData>(INITIAL_FORM_STATE);
+
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<ProductEditData | null>(null);
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  // Derived
+  const isRestaurantApproved = Boolean(restaurant?.isApproved);
+  const canCreateProduct = isRestaurantApproved && formData.name.trim() && formData.price.trim();
+
+  // API: load restaurant + products
+  const fetchRestaurantData = useCallback(async (): Promise<void> => {
+    setError("");
+    setIsLoading(true);
     try {
-      const r = await api.get<Rest>("/api/restaurants/me").catch(() => ({ data: null as any }));
-      setRest(r.data);
-      const { data } = await api.get<{ items: Product[] }>("/api/products", { params: { limit: 100, sort: "createdAt:desc", mine: true } });
-      setItems(data.items);
-    } catch (e:any) {
-      setErr(e?.response?.data?.error || "Load failed");
+      // restaurant
+      const rRes = await api.get<Restaurant>("/api/restaurants/me").catch(() => ({ data: null as Restaurant | null }));
+      setRestaurant(rRes.data);
+
+      // products
+      const pRes = await api.get<ProductsResponse>("/api/products", {
+        params: { limit: 100, sort: "createdAt:desc", mine: true },
+      });
+      setProducts(pRes.data.items);
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to load data"));
+    } finally {
+      setIsLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    void fetchRestaurantData();
+  }, [fetchRestaurantData]);
 
-  const create = async () => {
-    setErr("");
+  // CREATE
+  const createProduct = useCallback(async (): Promise<void> => {
+    if (!canCreateProduct) return;
+
+    setError("");
+    const parsedPrice = Number(formData.price);
+    if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
+      setError("Please enter a valid (non-negative) price.");
+      return;
+    }
+
     try {
       await api.post("/api/products", {
-        name: form.name,
-        price: Number(form.price),
-        category: form.category || "general",
-        imageUrl: form.imageUrl || "",
+        name: formData.name.trim(),
+        price: parsedPrice,
+        category: formData.category.trim() || DEFAULT_CATEGORY,
+        imageUrl: formData.imageUrl.trim(),
       });
-      setForm({ name: "", price: "", category: "", imageUrl: "" });
-      await load();
-    } catch (e:any) {
-      setErr(e?.response?.data?.error || "Create failed");
-    }
-  };
 
-  const remove = async (id: string) => {
-    setErr("");
+      setFormData(INITIAL_FORM_STATE);
+      await fetchRestaurantData();
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to create product"));
+    }
+  }, [canCreateProduct, fetchRestaurantData, formData.category, formData.imageUrl, formData.name, formData.price]);
+
+  // DELETE
+  const deleteProduct = useCallback(async (productId: string): Promise<void> => {
+    setError("");
     try {
-      await api.delete(`/api/products/${id}`);
-      setItems(prev => prev.filter(x => x._id !== id));
-    } catch (e:any) {
-      setErr(e?.response?.data?.error || "Delete failed");
+      await api.delete(`/api/products/${productId}`);
+      setProducts((prev) => prev.filter((p) => p._id !== productId));
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to delete product"));
     }
-  };
+  }, []);
 
-  const openEdit = (p: Product) => {
-    setEditing({
-      _id: p._id,
-      name: p.name,
-      price: p.price,
-      category: p.category,
-      imageUrl: p.imageUrl,
-      description: p.description,
-      isAvailable: p.isAvailable,
+  // Form handlers
+  const handleFormChange = useCallback(
+    (field: keyof ProductFormData) =>
+      (event: React.ChangeEvent<HTMLInputElement>): void => {
+        setFormData((prev) => ({ ...prev, [field]: event.target.value }));
+      },
+    []
+  );
+
+  // Edit handlers
+  const handleEditProduct = useCallback((product: Product): void => {
+    setEditingProduct({
+      _id: product._id,
+      name: product.name,
+      price: product.price,
+      category: product.category,
+      imageUrl: product.imageUrl,
+      description: product.description,
+      isAvailable: product.isAvailable,
     });
-    setEditOpen(true);
-  };
+    setIsEditDialogOpen(true);
+  }, []);
 
-  const handleSaved = (updated: ProductEditData) => {
-    setItems(prev => prev.map(it => it._id === updated._id ? { ...it, ...updated } : it));
-    setEditOpen(false);
-    setEditing(null);
-  };
+  const handleCloseEditDialog = useCallback((): void => {
+    setIsEditDialogOpen(false);
+    setEditingProduct(null);
+  }, []);
 
-  const approved = !!rest?.isApproved;
+  // Optimistic update from dialog
+  const handleOptimisticUpdate = useCallback(
+    (draft: ProductEditData) => {
+      // Snapshot (önceki referansı sakla — immutable kalıyor)
+      const snapshot = products;
+      // Hemen UI'yı güncelle
+      setProducts((prev) => prev.map((p) => (p._id === draft._id ? ({ ...p, ...draft } as Product) : p)));
+      // Rollback fonksiyonu döndür
+      return () => setProducts(snapshot);
+    },
+    [products]
+  );
 
-  return (
-    <Container sx={{ mt:3 }}>
-      <Box sx={{ display:"flex", alignItems:"center", gap:2, mb:2 }}>
-        <Typography variant="h5" sx={{ flex:1 }}>My Menu</Typography>
-        {rest ? (
-          <Chip label={approved ? "Approved" : "Pending approval"} color={approved ? "success" : "warning"} />
-        ) : (
-          <Chip label="No restaurant" color="default" />
-        )}
+  const handleProductSaved = useCallback((updated: ProductEditData): void => {
+    setProducts((prev) => prev.map((p) => (p._id === updated._id ? ({ ...p, ...updated } as Product) : p)));
+    handleCloseEditDialog();
+  }, [handleCloseEditDialog]);
+
+  const handleEditError = useCallback((message: string): void => {
+    setError(message || "Failed to update product");
+  }, []);
+
+  // Render helpers
+  const renderRestaurantStatus = (): JSX.Element =>
+    restaurant ? (
+      <Chip label={isRestaurantApproved ? "Approved" : "Pending approval"} color={isRestaurantApproved ? "success" : "warning"} />
+    ) : (
+      <Chip label="No restaurant" color="default" />
+    );
+
+  const renderProductCard = (product: Product): JSX.Element => (
+    <Grid key={product._id} size={GRID_BREAKPOINTS}>
+      <Card>
+        <CardContent>
+          <Typography variant="h6">{product.name}</Typography>
+          <Typography variant="body2" color="text.secondary">
+            {product.category || "—"} · {product.price} ₺
+            {product.isAvailable === false && " · (unavailable)"}
+          </Typography>
+        </CardContent>
+        <CardActions>
+          <Button size="small" onClick={() => handleEditProduct(product)}>
+            Edit
+          </Button>
+          <Button size="small" color="error" onClick={() => deleteProduct(product._id)}>
+            Delete
+          </Button>
+        </CardActions>
+      </Card>
+    </Grid>
+  );
+
+  const renderProductForm = (): JSX.Element => (
+    <Box sx={{ mb: 2 }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 2, mb: 2 }}>
+        <TextField label="Name" value={formData.name} onChange={handleFormChange("name")} required />
+        <TextField
+          label="Price"
+          type="number"
+          inputProps={{ min: 0, step: "0.01" }}
+          value={formData.price}
+          onChange={handleFormChange("price")}
+          required
+        />
+        <TextField label="Category" value={formData.category} onChange={handleFormChange("category")} />
+        <TextField label="Image URL" value={formData.imageUrl} onChange={handleFormChange("imageUrl")} />
       </Box>
 
-      {!rest && (
-        <Alert severity="info" sx={{ mb:2 }}>
-          You don't have a restaurant yet. Go to <b>My Restaurant</b> and create one. After admin approval, you can add items.
+      <Button variant="contained" onClick={createProduct} disabled={!canCreateProduct}>
+        Create Product
+      </Button>
+    </Box>
+  );
+
+  // === Render ===
+  return (
+    <Container sx={{ mt: 3 }}>
+      {/* Header */}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
+        <Typography variant="h5" sx={{ flex: 1 }}>
+          My Menu
+        </Typography>
+        {renderRestaurantStatus()}
+      </Box>
+
+      {/* Restaurant info */}
+      {!restaurant && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          You don't have a restaurant yet. Go to <strong>My Restaurant</strong> and create one. After admin approval, you can add items.
         </Alert>
       )}
 
-      {err && <Alert severity="error" sx={{ mb:2 }}>{err}</Alert>}
+      {/* Error */}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
-      <Box sx={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:2, mb:2 }}>
-        <TextField label="Name" value={form.name} onChange={e=>setForm(s=>({...s,name:e.target.value}))} />
-        <TextField label="Price" type="number" value={form.price} onChange={e=>setForm(s=>({...s,price:e.target.value}))} />
-        <TextField label="Category" value={form.category} onChange={e=>setForm(s=>({...s,category:e.target.value}))} />
-        <TextField label="Image URL" value={form.imageUrl} onChange={e=>setForm(s=>({...s,imageUrl:e.target.value}))} />
-      </Box>
-      <Button variant="contained" onClick={create} disabled={!approved || !form.name || !form.price}>
-        Create Product
-      </Button>
+      {/* Form */}
+      {renderProductForm()}
 
-      <Grid container spacing={2} sx={{ mt:1 }}>
-        {items.map(p=>(
-          <Grid item xs={12} md={6} lg={4} key={p._id}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6">{p.name}</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {(p.category || "—")} · {p.price} ₺ {p.isAvailable === false ? " · (unavailable)" : ""}
-                </Typography>
-              </CardContent>
-              <CardActions>
-                <Button size="small" onClick={()=>openEdit(p)}>Edit</Button>
-                <Button size="small" color="error" onClick={()=>remove(p._id)}>Delete</Button>
-              </CardActions>
-            </Card>
-          </Grid>
-        ))}
+      {/* Products */}
+      <Grid container spacing={2} sx={{ mt: 1 }}>
+        {products.map(renderProductCard)}
       </Grid>
 
+      {/* Edit dialog */}
       <ProductEditDialog
-        open={editOpen}
-        product={editing}
-        onClose={()=>{ setEditOpen(false); setEditing(null); }}
-        onSaved={handleSaved}
+        open={isEditDialogOpen}
+        product={editingProduct}
+        onClose={handleCloseEditDialog}
+        onOptimistic={handleOptimisticUpdate}
+        onSaved={handleProductSaved}
+        onError={handleEditError}
       />
+
+      {/* Loading indicator */}
+      {isLoading && (
+        <Box sx={{ mt: 2 }}>
+          <Alert severity="info">Loading…</Alert>
+        </Box>
+      )}
     </Container>
   );
 }

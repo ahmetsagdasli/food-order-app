@@ -5,12 +5,14 @@ import { AuthProvider } from "./context/AuthContext";
 import App from "./app/App";
 import "./index.css";
 
+// Leaflet CSS'i tek sefer, global import et
+import "leaflet/dist/leaflet.css";
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <BrowserRouter>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
-    </BrowserRouter>
-  </React.StrictMode>
+  // NOT: StrictMode dev'de Leaflet'i iki kez mount edebiliyor; kapatıyoruz
+  <BrowserRouter>
+    <AuthProvider>
+      <App />
+    </AuthProvider>
+  </BrowserRouter>
 );
